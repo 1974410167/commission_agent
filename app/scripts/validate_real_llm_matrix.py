@@ -439,9 +439,7 @@ def _build_cases(context: dict[str, Any]) -> list[RealLLMCase]:
     # 12 turns: order status.
     order_direct_openers = [
         f"查询订单{shop_order_id}什么时候到账",
-        f"帮我查订单{shop_order_id}到账状态",
         f"订单{shop_order_id}到账了吗",
-        f"再看看订单{shop_order_id}什么时候到账",
     ]
     for index, opener in enumerate(order_direct_openers, start=1):
         cid = f"real-llm-order-{index}"
@@ -463,6 +461,42 @@ def _build_cases(context: dict[str, Any]) -> list[RealLLMCase]:
                     expected_intent="EXPLAIN_BUSINESS_TERM",
                     expected_task_type="TERM_EXPLAIN",
                     expected_selected_tool="explain_business_term",
+                ),
+                RealLLMCase(
+                    conversation_id=cid,
+                    message=f"订单{shop_order_id}什么时候到账",
+                    expected_action="answer",
+                    expected_intent="QUERY_ORDER_TRANSFER_STATUS",
+                    expected_task_type="ORDER_TRANSFER_STATUS",
+                    expected_selected_tool="get_order_transfer_status",
+                    expected_filters_subset={"shop_order_id": shop_order_id},
+                ),
+            ]
+        )
+
+    order_clarify_openers = [
+        "我的佣金什么时候到账",
+        "我的佣金到账了吗",
+    ]
+    for index, opener in enumerate(order_clarify_openers, start=1):
+        cid = f"real-llm-order-clarify-{index}"
+        cases.extend(
+            [
+                RealLLMCase(
+                    conversation_id=cid,
+                    message=opener,
+                    expected_action="clarify",
+                    expected_task_type="ORDER_TRANSFER_STATUS",
+                    expected_missing_slots=["shop_order_id"],
+                ),
+                RealLLMCase(
+                    conversation_id=cid,
+                    message=f"shop_order_id: {shop_order_id}",
+                    expected_action="answer",
+                    expected_intent="QUERY_ORDER_TRANSFER_STATUS",
+                    expected_task_type="ORDER_TRANSFER_STATUS",
+                    expected_selected_tool="get_order_transfer_status",
+                    expected_filters_subset={"shop_order_id": shop_order_id},
                 ),
                 RealLLMCase(
                     conversation_id=cid,

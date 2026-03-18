@@ -64,6 +64,99 @@ pip install -r requirements.txt
 - `openai`
 - `numpy`
 
+## 当前架构
+
+当前这套 Agent 不是自由循环的 ReAct Agent，而是一个受控状态机。
+
+主链路：
+
+```text
+用户消息
+-> understand_query
+-> reduce_state
+-> normalize_and_validate
+-> build_query_plan
+-> execute_tool
+-> compose_answer
+```
+
+其中：
+
+- `understand_query`
+  - 一次 LLM 调用完成单轮语义理解
+  - 输出：
+    - `turn_type`
+    - `entity_scope`
+    - `goal_type`
+    - `slots`
+- `resolve_task_type`
+  - 后端把：
+    - `entity_scope + goal_type`
+  - 映射成系统支持的 `task_type`
+- `reduce_state`
+  - 把上一轮 `task_state` 和本轮理解结果合成新的任务态
+- `normalize_and_validate`
+  - 做时间标准化、权限校验、缺参判断
+- `build_query_plan`
+  - 把稳定的 `task_state` 翻译成执行计划
+- `execute_tool`
+  - 查询类走 ES
+  - explain 类走 knowledge 检索 + LLM 组织答案
+
+当前状态机是条件路由 graph，而不是线性节点里靠 `if/else` 短路。
+
+### 关键语义层
+
+当前 NLU 不再让 LLM 直接拍板最终任务，而是先输出底层语义维度：
+
+- `turn_type`
+  - `NEW_QUERY`
+  - `MODIFY_FILTERS`
+  - `ANSWER_CLARIFY`
+  - `EXPLAIN`
+  - `UNSUPPORTED`
+- `entity_scope`
+  - `CREATOR`
+  - `MEDIA`
+  - `ORDER`
+  - `TERM`
+- `goal_type`
+  - `SUMMARY`
+  - `STATUS`
+  - `REASON`
+  - `COMPARE`
+  - `EXPLAIN`
+
+然后由后端 resolver 做确定性映射，例如：
+
+- `CREATOR + SUMMARY -> CREATOR_COMMISSION`
+- `MEDIA + STATUS -> MEDIA_COMMISSION_STATUS`
+- `MEDIA + REASON -> MEDIA_NO_COMMISSION_REASON`
+- `ORDER + STATUS -> ORDER_TRANSFER_STATUS`
+- `TERM + EXPLAIN -> TERM_EXPLAIN`
+
+这样可以显著降低：
+
+- “视频是否可分佣” 和 “视频为什么不可分佣” 混淆
+- “按视频展开” 把任务切成新任务
+- clarify 补 `media_id / order_id` 时任务类型漂移
+
+### 会话持久化
+
+当前不再使用自定义 `ConversationStore`。
+
+会话状态持久化由 LangGraph 官方 PostgreSQL checkpointer 接管：
+
+- `thread_id = conversation_id`
+- 每轮请求都会从 graph 起点重新执行
+- 但会先恢复上一轮的 `task_state`
+
+这意味着：
+
+- 系统支持跨请求多轮 follow-up
+- clarify 补参可以延续
+- 运行时状态只有一份真相：graph state / `task_state`
+
 ## 环境变量
 
 复制配置：
@@ -387,6 +480,24 @@ curl -X POST http://127.0.0.1:8000/api/chat \
   }'
 ```
 
+## 当前支持的问题类型
+
+- 查某达人最近 30 天分佣情况
+- 只看不可分佣订单
+- 按视频展开
+- 对比闭环 CPS 和开环 CPS
+- 查询某视频是否可分佣
+- 查询某视频为什么不可分佣
+- 查询订单什么时候到账
+- 解释 CPS / CPT / 闭环 / 开环 / NO_PRODUCT_COMMISSION 等术语或规则
+
+说明：
+
+- 订单到账状态当前只支持订单维度
+- 像“我的佣金什么时候到账”这类问句会被收敛成：
+  - `ORDER + STATUS`
+  - 缺订单号时进入 clarify
+
 响应字段：
 
 - `action`
@@ -555,9 +666,54 @@ python -m app.scripts.run_demo_chat
 - 当 LLM 不可用时，`debug.nlu_mode=llm_unavailable`
 - 前端不再提供模型切换开关，NLU 固定走 `LLMBasedNLU`
 
-## 当前支持问题
+## 真实 LLM 回归
 
-- 查某达人最近 30 天分佣情况
+当前项目维护了一套真实 LLM 驱动的回归脚本：
+
+- [/Users/gehaoyuan/code/commission_agent/app/scripts/validate_real_llm_matrix.py](/Users/gehaoyuan/code/commission_agent/app/scripts/validate_real_llm_matrix.py)
+
+这套脚本不是纯本地单测，而是直接调用：
+
+- 本地 `/api/chat`
+- 真实 LLM
+- 真实 LangGraph 状态机
+- 真实 ES / RAG / PostgreSQL checkpointer
+
+运行命令：
+
+```bash
+cd /Users/gehaoyuan/code/commission_agent
+CONVERSATION_STORE_BACKEND=postgres \
+POSTGRES_DSN='dbname=commission_agent user=gehaoyuan' \
+python -m app.scripts.validate_real_llm_matrix
+```
+
+当前覆盖共 `100` 个 turn 级 case，包含：
+
+- creator summary
+- media commission status
+- media no-commission reason
+- order transfer status
+- explain
+- creator permission
+
+同时覆盖多轮 follow-up 和 clarify，例如：
+
+- `只看最近7天`
+- `按视频展开`
+- `media_id: 990041`
+- `我的佣金什么时候到账`
+- `我的佣金到账了吗`
+
+最新一次真实回归结果：
+
+- `total_cases = 100`
+- `passed = 100`
+- `failed = 0`
+
+日志输出：
+
+- [/Users/gehaoyuan/code/commission_agent/demo/output/validate_real_llm_matrix.log](/Users/gehaoyuan/code/commission_agent/demo/output/validate_real_llm_matrix.log)
 - 查某视频为什么不可分佣
 - 查某订单什么时候到账
 - 解释 `cps / cpt / 开环 / 闭环`

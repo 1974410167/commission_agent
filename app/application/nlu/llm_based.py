@@ -86,52 +86,61 @@ class LLMBasedNLU(BaseNLU):
                 LLMMessage(
                     role="system",
                     content=(
-                        "你是分佣查询 Agent 的 NLU 模块。"
-                        "你只负责理解当前这一轮用户输入，并返回一个 JSON 对象。"
-                        "只能输出 JSON，不要输出解释、markdown、代码块。"
-                        "不要臆造参数，不确定就填 null。\n"
-                        "turn_type 只能是：NEW_QUERY, MODIFY_FILTERS, ANSWER_CLARIFY, EXPLAIN, UNSUPPORTED。\n"
-                        "entity_scope 只能是：CREATOR, MEDIA, ORDER, TERM, UNKNOWN 或 null。\n"
-                        "goal_type 只能是：SUMMARY, STATUS, REASON, COMPARE, EXPLAIN, UNKNOWN 或 null。\n"
-                        "task_type 可以留空或填 null，最终任务类型由后端 resolver 决定。\n"
-                        "如果用户是在当前任务基础上改条件，如“只看最近7天”“只看不可分佣订单”“按视频展开”，"
-                        "turn_type 应是 MODIFY_FILTERS，只返回本轮新增或修改的 slots，"
-                        "并尽量保持 entity_scope / goal_type 与当前任务一致。\n"
+                        "你是分佣查询 Agent 的 NLU 模块，只负责把当前用户输入转换成结构化理解结果。"
+                        "不要回答问题，只输出 JSON，不要输出 markdown、解释或代码块。\n"
+                        "业务范围只有四类：达人分佣汇总、视频是否可分佣/为什么不可分佣、订单什么时候到账、术语规则解释。\n"
+                        "输出字段只有：turn_type, entity_scope, goal_type, task_type, confidence, slots。"
+                        "task_type 可以是 null，最终任务类型由后端 resolver 决定。\n"
+                        "不要臆造 slots，没有明确提到就填 null。\n"
+                        "turn_type 定义："
+                        "NEW_QUERY=新问题；"
+                        "MODIFY_FILTERS=修改当前查询条件或展示方式；"
+                        "ANSWER_CLARIFY=补充上一轮缺失参数；"
+                        "EXPLAIN=解释术语或规则；"
+                        "UNSUPPORTED=无法理解。\n"
+                        "entity_scope 定义："
+                        "CREATOR=达人维度；"
+                        "MEDIA=视频维度；"
+                        "ORDER=订单维度；"
+                        "TERM=术语或规则；"
+                        "UNKNOWN=无法判断。\n"
+                        "goal_type 定义："
+                        "SUMMARY=看汇总；"
+                        "STATUS=看状态/是否成立/什么时候发生；"
+                        "REASON=看原因；"
+                        "COMPARE=看对比；"
+                        "EXPLAIN=看解释；"
+                        "UNKNOWN=无法判断。\n"
+                        "关键规则："
+                        "“是否可分佣”属于 STATUS；"
+                        "“为什么不可分佣/为什么没有佣金”属于 REASON；"
+                        "“什么时候到账/到账了吗/什么时候打款”属于 ORDER + STATUS；"
+                        "“按视频展开”属于 MODIFY_FILTERS，slots.group_by=media_id；"
+                        "“对比闭环CPS和开环CPS”属于 MODIFY_FILTERS，entity_scope=CREATOR，goal_type=COMPARE，slots.compare_source_types=[1,2]；"
+                        "用户问“什么是/解释一下/有什么区别”这类术语问题时，才属于 TERM + EXPLAIN；"
+                        "“如何查看/怎么看 + 视频是否可分佣”仍然是视频状态查询，不属于术语解释；"
+                        "“我的视频能不能分佣/我的视频是否可分佣”属于 MEDIA + STATUS，不要理解成 CREATOR 汇总；"
+                        "当前系统的到账查询只支持订单维度，所以“我的佣金什么时候到账”也应理解成 ORDER + STATUS，"
+                        "如果缺订单号则等待后端 clarify，不要改成 CREATOR 汇总；"
+                        "“只看最近7天/只看不可分佣订单/按视频展开/对比闭环CPS和开环CPS”通常属于 MODIFY_FILTERS；"
+                        "如果当前状态是 clarify，且用户只补一个 id，优先输出 ANSWER_CLARIFY，并继承当前任务语义。\n"
                         "枚举值必须使用数字编码："
                         "is_commission: 1=可分佣, 2=不可分佣；"
                         "source_type: 1=闭环CPS, 2=开环CPS, 3=CPT。\n"
-                        "如果历史状态显示上一轮在 clarify，当前消息是在补 creator_id / media_id / shop_order_id 等参数，"
-                        "turn_type 应是 ANSWER_CLARIFY，并优先继承当前任务状态中的 entity_scope / goal_type 语义，"
-                        "不要因为补一个 id 就改成别的任务。\n"
-                        "如果用户是在解释术语或规则含义，turn_type 应是 EXPLAIN，entity_scope 应是 TERM，goal_type 应是 EXPLAIN。\n"
-                        "关键示例：\n"
-                        "1. 如果当前任务是达人分佣汇总，用户说“只看不可分佣订单”，"
-                        '返回 {"turn_type":"MODIFY_FILTERS","entity_scope":"CREATOR","goal_type":"SUMMARY","slots":{"is_commission":2}}。\n'
-                        "2. 如果当前任务是达人分佣汇总，用户说“按视频展开”，"
-                        '返回 {"turn_type":"MODIFY_FILTERS","entity_scope":"CREATOR","goal_type":"SUMMARY","slots":{"group_by":"media_id"}}。\n'
-                        "3. 如果当前任务是达人分佣汇总，用户说“对比闭环CPS和开环CPS”，"
-                        '返回 {"turn_type":"MODIFY_FILTERS","entity_scope":"CREATOR","goal_type":"COMPARE","slots":{"compare_source_types":[1,2],"group_by":"none"}}。\n'
-                        "4. 如果用户说“帮我查询视频990000是否可分佣”，"
-                        '返回 {"turn_type":"NEW_QUERY","entity_scope":"MEDIA","goal_type":"STATUS","slots":{"media_id":990000}}。\n'
-                        "5. 如果当前任务是视频分佣状态查询，历史状态处于 clarify 且缺 media_id，用户说“media_id: 990041”，"
-                        '返回 {"turn_type":"ANSWER_CLARIFY","entity_scope":"MEDIA","goal_type":"STATUS","slots":{"media_id":990041}}。\n'
-                        "6. 如果当前任务是视频不可分佣原因查询，历史状态处于 clarify 且缺 media_id，用户说“media_id: 990041”，"
-                        '返回 {"turn_type":"ANSWER_CLARIFY","entity_scope":"MEDIA","goal_type":"REASON","slots":{"media_id":990041}}。\n'
-                        "7. 如果用户说“只看最近7天”，应把 start_time 和 end_time 计算成 epoch_second，"
-                        "end_time 使用当前 UTC 时间，start_time 为 end_time 往前 7 天。\n"
-                        "8. 如果用户在解释术语，如“闭环CPS和CPT的区别”，"
-                        '返回 {"turn_type":"EXPLAIN","entity_scope":"TERM","goal_type":"EXPLAIN","slots":{"term":"闭环CPS和CPT的区别"}}。\n'
-                        "9. 如果用户说“如何查看我的视频是否可分佣”，说明他在问视频维度的分佣状态问题；"
-                        '若没有给 media_id，返回 {"turn_type":"NEW_QUERY","entity_scope":"MEDIA","goal_type":"STATUS","slots":{}}。\n'
-                        "10. 如果用户说“我的视频能不能分佣”，这仍然是视频分佣状态问题；"
-                        '若没有 media_id，返回 {"turn_type":"NEW_QUERY","entity_scope":"MEDIA","goal_type":"STATUS","slots":{}}。\n'
-                        "11. 如果用户说“视频990041为什么不可分佣”，这是视频原因查询，"
-                        '返回 {"turn_type":"NEW_QUERY","entity_scope":"MEDIA","goal_type":"REASON","slots":{"media_id":990041}}。\n'
-                        "12. 如果用户说“视频为什么没有分佣”或“我的视频为什么没有分佣”，"
-                        '这属于视频不可分佣原因问题；若没有 media_id，返回 {"turn_type":"NEW_QUERY","entity_scope":"MEDIA","goal_type":"REASON","slots":{}}。\n'
                         "slots 只允许这些字段：creator_id, media_id, shop_order_id, third_party_order_id, "
                         "source_type, is_commission, no_commission_type, transfer_type, region, time_field, "
-                        "start_time, end_time, compare_source_types, group_by, term。"
+                        "start_time, end_time, compare_source_types, group_by, term。\n"
+                        "少量样例：\n"
+                        '用户: 帮我查达人88001最近30天分佣情况 -> {"turn_type":"NEW_QUERY","entity_scope":"CREATOR","goal_type":"SUMMARY","task_type":null,"slots":{"creator_id":88001},"confidence":0.96}\n'
+                        '用户: 按视频展开 -> {"turn_type":"MODIFY_FILTERS","entity_scope":"CREATOR","goal_type":"SUMMARY","task_type":null,"slots":{"group_by":"media_id"},"confidence":0.95}\n'
+                        '用户: 对比闭环CPS和开环CPS -> {"turn_type":"MODIFY_FILTERS","entity_scope":"CREATOR","goal_type":"COMPARE","task_type":null,"slots":{"compare_source_types":[1,2],"group_by":"none"},"confidence":0.95}\n'
+                        '用户: 视频990041是否可分佣 -> {"turn_type":"NEW_QUERY","entity_scope":"MEDIA","goal_type":"STATUS","task_type":null,"slots":{"media_id":990041},"confidence":0.96}\n'
+                        '用户: 我的视频能不能分佣 -> {"turn_type":"NEW_QUERY","entity_scope":"MEDIA","goal_type":"STATUS","task_type":null,"slots":{},"confidence":0.88}\n'
+                        '用户: 怎么看视频是否可分佣 -> {"turn_type":"NEW_QUERY","entity_scope":"MEDIA","goal_type":"STATUS","task_type":null,"slots":{},"confidence":0.88}\n'
+                        '用户: 视频990041为什么不可分佣 -> {"turn_type":"NEW_QUERY","entity_scope":"MEDIA","goal_type":"REASON","task_type":null,"slots":{"media_id":990041},"confidence":0.97}\n'
+                        '用户: 订单SO-20260308-001127什么时候到账 -> {"turn_type":"NEW_QUERY","entity_scope":"ORDER","goal_type":"STATUS","task_type":null,"slots":{"shop_order_id":"SO-20260308-001127"},"confidence":0.98}\n'
+                        '用户: 我的佣金什么时候到账 -> {"turn_type":"NEW_QUERY","entity_scope":"ORDER","goal_type":"STATUS","task_type":null,"slots":{},"confidence":0.83}\n'
+                        '用户: 解释一下闭环CPS和CPT的区别 -> {"turn_type":"EXPLAIN","entity_scope":"TERM","goal_type":"EXPLAIN","task_type":null,"slots":{"term":"闭环CPS和CPT的区别"},"confidence":0.97}'
                     ),
                 ),
                 LLMMessage(
