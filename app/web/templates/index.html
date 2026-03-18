@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Commission Agent Demo</title>
+    <link rel="stylesheet" href="/static/css/app.css" />
+  </head>
+  <body>
+    <div class="page-shell">
+      <!-- 顶部标题区：展示项目名、用途和当前运行模式 -->
+      <header class="hero">
+        <div>
+          <p class="eyebrow">Commission Agent Demo</p>
+          <h1>达人/运营分佣查询、规则解释、多轮追问演示</h1>
+          <p class="subtitle">
+            事实查询来自 Elasticsearch，规则解释来自 markdown RAG，右侧调试面板可直接展示 Agent
+            的内部链路。
+          </p>
+        </div>
+        <div class="mode-card">
+          <div class="mode-label">当前运行模式</div>
+          <div id="modeBadge" class="mode-badge">LLM + RAG</div>
+          <div class="mode-note">LLM + RAG / LLM Unavailable</div>
+        </div>
+      </header>
+
+      <!-- 会话控制区：角色切换、creator 绑定、LLM 开关、会话管理 -->
+      <section class="control-bar">
+        <div class="control-grid">
+          <label>
+            <span>conversation_id</span>
+            <input id="conversationId" type="text" value="{{ default_conversation_id }}" />
+          </label>
+          <label>
+            <span>user_role</span>
+            <select id="userRole">
+              <option value="operator">operator</option>
+              <option value="creator">creator</option>
+            </select>
+          </label>
+          <label>
+            <span>bound_creator_id</span>
+            <input id="boundCreatorId" type="number" placeholder="creator 模式必填" />
+          </label>
+        </div>
+        <div class="control-actions">
+          <button id="newConversationBtn" class="secondary">新建会话</button>
+          <button id="resetConversationBtn" class="secondary">清空会话</button>
+        </div>
+      </section>
+
+      <!-- Demo Guide 与快捷问题区：问题按钮使用真实样例 id，避免点完没数据 -->
+      <section class="guide-panel">
+        <div>
+          <h2>Demo Guide</h2>
+          <ol>
+            <li>operator 查达人近 30 天分佣</li>
+            <li>追问只看不可分佣订单</li>
+            <li>按视频展开</li>
+            <li>解释某个不可分佣原因</li>
+            <li>切到 creator 身份验证权限限制</li>
+          </ol>
+        </div>
+        <div>
+          <h2>快捷问题</h2>
+          <div id="quickQuestions" class="quick-question-grid"></div>
+        </div>
+      </section>
+
+      <div id="errorBanner" class="error-banner hidden"></div>
+
+      <!-- 主工作区：左侧聊天，右侧调试面板 -->
+      <main class="workspace">
+        <section class="chat-panel">
+          <div id="messageList" class="message-list"></div>
+          <div class="composer">
+            <textarea id="messageInput" rows="3" placeholder="输入自然语言问题，例如：帮我查达人最近30天分佣情况"></textarea>
+            <div class="composer-actions">
+              <span id="loadingHint" class="loading-hint hidden">发送中...</span>
+              <button id="sendBtn">发送</button>
+            </div>
+          </div>
+        </section>
+
+        <aside class="debug-panel">
+          <!-- 调试面板直接映射后端 debug 字段，方便演示：
+               1. 本轮识别了什么 intent
+               2. 走了哪个 tool
+               3. 命中了哪些 evidence / chunk -->
+          <div class="debug-section">
+            <h3>本轮基础信息</h3>
+            <dl id="debugMeta" class="meta-list"></dl>
+          </div>
+          <div class="debug-section">
+            <h3>归一化参数</h3>
+            <pre id="normalizedFilters" class="json-block">{}</pre>
+          </div>
+          <div class="debug-section">
+            <h3>缺失参数</h3>
+            <div id="missingSlots" class="tag-list muted">无</div>
+          </div>
+          <div class="debug-section">
+            <h3>Evidence 详情</h3>
+            <div id="evidenceList" class="card-list"></div>
+          </div>
+          <div class="debug-section">
+            <h3>检索到的知识块</h3>
+            <div id="chunkList" class="card-list"></div>
+          </div>
+          <div class="debug-section">
+            <h3>工作流节点日志</h3>
+            <div id="workflowTraceList" class="card-list"></div>
+          </div>
+        </aside>
+      </main>
+    </div>
+
+    <!-- 后端预注入的页面初始化数据，供原生 JS 直接读取。 -->
+    <script id="pageData" type="application/json">
+      {{ page_payload | tojson }}
+    </script>
+    <script src="/static/js/app.js"></script>
+  </body>
+</html>

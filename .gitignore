@@ -1,0 +1,9 @@
+.env
+.pytest_cache/
+__pycache__/
+*.pyc
+.DS_Store
+.elasticsearch/
+.kibana/
+logs/
+demo/output/validate_real_llm_matrix.log

@@ -1,0 +1,82 @@
+[
+  {
+    "category": "summary",
+    "label": "帮我查达人{{recent_creator_id}}最近30天分佣情况",
+    "conversation_id": "demo-summary-1",
+    "role": "operator",
+    "bound_creator_id": null,
+    "message": "帮我查达人{{recent_creator_id}}最近30天分佣情况"
+  },
+  {
+    "category": "follow_up",
+    "label": "只看不可分佣订单",
+    "conversation_id": "demo-summary-1",
+    "role": "operator",
+    "bound_creator_id": null,
+    "message": "只看不可分佣订单"
+  },
+  {
+    "category": "follow_up",
+    "label": "按视频展开",
+    "conversation_id": "demo-summary-1",
+    "role": "operator",
+    "bound_creator_id": null,
+    "message": "按视频展开"
+  },
+  {
+    "category": "media_reason",
+    "label": "查询视频{{recent_media_id}}为什么不可分佣",
+    "conversation_id": "demo-media-1",
+    "role": "operator",
+    "bound_creator_id": null,
+    "message": "查询视频{{recent_media_id}}为什么不可分佣"
+  },
+  {
+    "category": "order_transfer",
+    "label": "查询订单{{latest_shop_order_id}}什么时候到账",
+    "conversation_id": "demo-order-1",
+    "role": "operator",
+    "bound_creator_id": null,
+    "message": "查询订单 {{latest_shop_order_id}} 什么时候到账"
+  },
+  {
+    "category": "term_explain",
+    "label": "解释一下闭环cps和cpt的区别",
+    "conversation_id": "demo-knowledge-1",
+    "role": "operator",
+    "bound_creator_id": null,
+    "message": "解释一下闭环cps和cpt的区别"
+  },
+  {
+    "category": "compare",
+    "label": "对比闭环cps和开环cps",
+    "conversation_id": "demo-summary-1",
+    "role": "operator",
+    "bound_creator_id": null,
+    "message": "对比闭环cps和开环cps"
+  },
+  {
+    "category": "creator_self",
+    "label": "creator 模式下查最近30天分佣情况",
+    "conversation_id": "demo-creator-1",
+    "role": "creator",
+    "bound_creator_id": "{{bound_creator_id}}",
+    "message": "帮我查最近30天分佣情况"
+  },
+  {
+    "category": "permission_check",
+    "label": "creator 模式下尝试查询别人的 creator_id",
+    "conversation_id": "demo-creator-2",
+    "role": "creator",
+    "bound_creator_id": "{{bound_creator_id}}",
+    "message": "帮我查达人99999最近30天分佣情况"
+  },
+  {
+    "category": "term_explain",
+    "label": "解释一下 NO_PRODUCT_COMMISSION",
+    "conversation_id": "demo-fallback-1",
+    "role": "operator",
+    "bound_creator_id": null,
+    "message": "解释一下 NO_PRODUCT_COMMISSION"
+  }
+]

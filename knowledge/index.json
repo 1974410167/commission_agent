@@ -1,0 +1,5 @@
+{
+  "mode": "embedding",
+  "embedding_model": "text-embedding-v4",
+  "chunk_count": 51
+}

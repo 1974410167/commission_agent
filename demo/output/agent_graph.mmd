@@ -1,0 +1,25 @@
+%%{init: {'flowchart': {'curve': 'linear'}}}%%
+graph TD;
+	__start__([<p>__start__</p>]):::first
+	understand_query(understand_query)
+	reduce_state(reduce_state)
+	normalize_and_validate(normalize_and_validate)
+	clarify_if_needed(clarify_if_needed)
+	build_query_plan(build_query_plan)
+	execute_tool(execute_tool)
+	compose_answer(compose_answer)
+	__end__([<p>__end__</p>]):::last
+	__start__ --> understand_query;
+	clarify_if_needed --> __end__;
+	compose_answer --> __end__;
+	execute_tool --> compose_answer;
+	reduce_state --> normalize_and_validate;
+	understand_query --> reduce_state;
+	normalize_and_validate -. &nbsp;clarify&nbsp; .-> clarify_if_needed;
+	normalize_and_validate -. &nbsp;route&nbsp; .-> build_query_plan;
+	normalize_and_validate -. &nbsp;unsupported&nbsp; .-> compose_answer;
+	build_query_plan -. &nbsp;execute&nbsp; .-> execute_tool;
+	build_query_plan -. &nbsp;unsupported&nbsp; .-> compose_answer;
+	classDef default fill:#f2f0ff,line-height:1.2
+	classDef first fill-opacity:0
+	classDef last fill:#bfb6fc
