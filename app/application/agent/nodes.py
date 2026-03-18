@@ -41,6 +41,7 @@ from app.domain.intent_models import (
     ChatResponse,
     CommissionQuerySlots,
     NormalizedFilters,
+    TimeScope,
     TurnType,
 )
 from app.domain.knowledge_models import EvidenceItem
@@ -131,6 +132,7 @@ def normalize_and_validate(state: AgentState) -> AgentState:
         "no_commission_type": data.get("no_commission_type"),
         "transfer_type": data.get("transfer_type"),
         "region": data.get("region"),
+        "time_scope": data.get("time_scope"),
         "time_field": data.get("time_field"),
         "start_time": data.get("start_time"),
         "end_time": data.get("end_time"),
@@ -138,7 +140,7 @@ def normalize_and_validate(state: AgentState) -> AgentState:
         "group_by": data.get("group_by") or "none",
         "term": data.get("term"),
     }
-    _apply_relative_time_standardization(state.get("message", ""), normalized, now)
+    _apply_time_scope_standardization(state.get("message", ""), normalized, now)
 
     if user_context.user_role == "creator":
         # 权限校验始终必须在后端完成，不能依赖 prompt 约束。
@@ -198,9 +200,21 @@ def normalize_and_validate(state: AgentState) -> AgentState:
     if task_state.task_type == TaskType.MEDIA_COMMISSION_STATUS and (
         normalized["start_time"] is None or normalized["end_time"] is None
     ):
-        normalized["time_field"] = normalized["time_field"] or "order_confirm_time"
-        normalized["end_time"] = int(now.timestamp())
-        normalized["start_time"] = int((now - timedelta(days=30)).timestamp())
+        # 视频状态查询在“明确给了 media_id + source_type，但没说时间”时，
+        # 用户通常是在问这个视频在该来源类型下历史上有没有分佣事实，
+        # 而不是只看最近 30 天。
+        # 因此这里把默认策略收敛为：
+        # - 指定了 source_type 且没给时间 -> ALL_HISTORY
+        # - 其他情况 -> 最近 30 天
+        if normalized.get("source_type"):
+            normalized["time_scope"] = normalized.get("time_scope") or TimeScope.ALL_HISTORY.value
+            normalized["time_field"] = normalized["time_field"] or "order_confirm_time"
+            normalized["end_time"] = int(now.timestamp())
+            normalized["start_time"] = 0
+        else:
+            normalized["time_field"] = normalized["time_field"] or "order_confirm_time"
+            normalized["end_time"] = int(now.timestamp())
+            normalized["start_time"] = int((now - timedelta(days=30)).timestamp())
 
     missing_slots: list[str] = []
     # 缺参判断跟 task_type 强相关：
@@ -782,22 +796,47 @@ def _clarify_question(task_state: TaskState, missing_slots: list[str]) -> str:
     return "；".join(mapping.get(item, item) for item in missing_slots)
 
 
-def _apply_relative_time_standardization(message: str, normalized: dict[str, Any], now: datetime) -> None:
-    """把“最近7天/最近30天”这类相对时间统一标准化。
+def _apply_time_scope_standardization(message: str, normalized: dict[str, Any], now: datetime) -> None:
+    """把时间语义统一标准化成 start_time / end_time / time_field。
 
     这层属于允许保留的确定性时间标准化，不承担主路径意图理解职责。
     目标是避免 LLM 在相对时间换算上偶发漂移，导致 follow-up 查错时间窗。
     """
 
+    scope = normalized.get("time_scope")
+    if scope == TimeScope.RECENT_7D.value:
+        normalized["end_time"] = int(now.timestamp())
+        normalized["start_time"] = int((now - timedelta(days=7)).timestamp())
+        normalized["time_field"] = normalized.get("time_field") or "order_confirm_time"
+        return
+    if scope == TimeScope.RECENT_30D.value:
+        normalized["end_time"] = int(now.timestamp())
+        normalized["start_time"] = int((now - timedelta(days=30)).timestamp())
+        normalized["time_field"] = normalized.get("time_field") or "order_confirm_time"
+        return
+    if scope == TimeScope.ALL_HISTORY.value:
+        normalized["end_time"] = int(now.timestamp())
+        normalized["start_time"] = 0
+        normalized["time_field"] = normalized.get("time_field") or "order_confirm_time"
+        return
+
     compact = message.replace(" ", "")
     if any(token in compact for token in ("最近7天", "近7天", "最近一周", "近一周")):
+        normalized["time_scope"] = TimeScope.RECENT_7D.value
         normalized["end_time"] = int(now.timestamp())
         normalized["start_time"] = int((now - timedelta(days=7)).timestamp())
         normalized["time_field"] = normalized.get("time_field") or "order_confirm_time"
         return
     if any(token in compact for token in ("最近30天", "近30天", "最近一个月", "近一个月", "近1个月")):
+        normalized["time_scope"] = TimeScope.RECENT_30D.value
         normalized["end_time"] = int(now.timestamp())
         normalized["start_time"] = int((now - timedelta(days=30)).timestamp())
+        normalized["time_field"] = normalized.get("time_field") or "order_confirm_time"
+        return
+    if any(token in compact for token in ("历史上所有", "全部", "不限时间", "全量", "从开始到现在")):
+        normalized["time_scope"] = TimeScope.ALL_HISTORY.value
+        normalized["end_time"] = int(now.timestamp())
+        normalized["start_time"] = 0
         normalized["time_field"] = normalized.get("time_field") or "order_confirm_time"
 
 

@@ -271,6 +271,13 @@ MODEL_PROVIDER=volcengine
 
 ## Elasticsearch 启动
 
+先说结论：
+
+- 首页 `GET /` 依赖 ES 里的 demo 数据。
+- 只重启 FastAPI，不保证首页可用。
+- 正确顺序应为：`ES -> (可选 Kibana) -> FastAPI`
+- 当前机器上，ES 必须显式使用 `openjdk@17` 启动。
+
 优先方案：
 
 ```bash
@@ -299,6 +306,80 @@ ES_JAVA_OPTS="-Xms512m -Xmx512m -Dos.name=BSD -Dorg.fusesource.jansi.Ansi.disabl
   -Epath.data=$PWD/.elasticsearch/data \
   -Epath.logs=$PWD/.elasticsearch/logs
 ```
+
+健康检查：
+
+```bash
+curl http://127.0.0.1:9200
+```
+
+如果这里不通，FastAPI 的 `/health` 可能仍然是好的，但首页 `GET /` 会因为取 demo 数据失败而报 500。
+
+### 常见问题
+
+1. 首页提示“内部服务器错误”
+
+高概率不是前端模板问题，而是：
+
+- ES 没启动
+- 或 ES 启动了但索引不可用
+
+因为首页会在渲染时读取 demo 数据，代码路径是：
+
+- `app/api/main.py -> index()`
+- `app/web/demo_data.py -> resolve_demo_context()`
+- `app/infrastructure/es/repository.py -> find_recent_creator_id()`
+
+所以看到首页 500 时，先查：
+
+```bash
+curl http://127.0.0.1:9200
+curl http://127.0.0.1:8002/health
+```
+
+如果 ES 不通，先修 ES，不要只重启 FastAPI。
+
+2. 直接运行 `elasticsearch` 启动失败
+
+当前机器如果没有指定 JDK，可能出现：
+
+- `NoSuchMethodError`
+- `MemorySegment.getUtf8String`
+
+这通常是因为用了错误的 Java 版本。当前项目在本机已验证可用的方式是：
+
+- `ES_JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home`
+
+3. 在受限环境里启动 ES 失败
+
+如果看到类似：
+
+- `Failed to bind to 127.0.0.1:[9300-9399]`
+- `Operation not permitted`
+
+说明不是 ES 配置错，而是运行环境限制了 ES 的内部传输端口绑定。此时需要在允许绑定本地端口的环境里启动。
+
+### 推荐重启顺序
+
+如果本地页面打不开，按这个顺序排查最省时间：
+
+```bash
+# 1. 先确认 ES
+curl http://127.0.0.1:9200
+
+# 2. 再确认 FastAPI 健康检查
+curl http://127.0.0.1:8002/health
+
+# 3. 最后再打开首页
+open http://127.0.0.1:8002
+```
+
+如果需要完整重启：
+
+1. 先启动 ES
+2. 确认 `9200` 正常
+3. 再启动 FastAPI
+4. 最后访问首页
 
 ## Kibana 启动
 
@@ -439,25 +520,30 @@ python -m app.scripts.validate_agent_with_rag
 启动：
 
 ```bash
-uvicorn app.api.main:app --host 127.0.0.1 --port 8000
+uvicorn app.api.main:app --host 127.0.0.1 --port 8002
 ```
 
-如果 `8000` 端口被占用，可以切到其他端口，例如：
+如果 `8002` 端口被占用，可以切到其他端口，例如：
 
 ```bash
-uvicorn app.api.main:app --host 127.0.0.1 --port 8001
+uvicorn app.api.main:app --host 127.0.0.1 --port 8003
 ```
+
+当前项目本地默认使用：
+
+- Web / API: `http://127.0.0.1:8002`
+- Health: `http://127.0.0.1:8002/health`
 
 健康检查：
 
 ```bash
-curl http://127.0.0.1:8000/health
+curl http://127.0.0.1:8002/health
 ```
 
 `/api/chat` 示例：
 
 ```bash
-curl -X POST http://127.0.0.1:8000/api/chat \
+curl -X POST http://127.0.0.1:8002/api/chat \
   -H 'Content-Type: application/json' \
   -d '{
     "conversation_id": "demo-rag-1",

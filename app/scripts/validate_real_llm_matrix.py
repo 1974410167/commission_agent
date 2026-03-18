@@ -234,10 +234,20 @@ def _build_cases(context: dict[str, Any]) -> list[RealLLMCase]:
 
     # 20 turns: media commission status.
     direct_media_status = [
-        (f"帮我查询视频{media_status_id}是否可分佣", "operator", None),
-        (f"看下视频{media_status_id}是否可分佣", "creator", creator_bound_id),
+        (
+            f"{media_status_id}这个视频cpt是否可分佣",
+            "operator",
+            None,
+            {"media_id": media_status_id, "source_type": [3], "time_scope": "ALL_HISTORY"},
+        ),
+        (
+            f"看下视频{media_status_id}是否可分佣",
+            "creator",
+            creator_bound_id,
+            {"media_id": media_status_id},
+        ),
     ]
-    for index, (message, role, bound_id) in enumerate(direct_media_status, start=1):
+    for index, (message, role, bound_id, expected_filters_subset) in enumerate(direct_media_status, start=1):
         cid = f"real-llm-media-status-direct-{index}"
         cases.extend(
             [
@@ -250,7 +260,7 @@ def _build_cases(context: dict[str, Any]) -> list[RealLLMCase]:
                     expected_intent="QUERY_MEDIA_COMMISSION_STATUS",
                     expected_task_type="MEDIA_COMMISSION_STATUS",
                     expected_selected_tool="get_media_commission_status",
-                    expected_filters_subset={"media_id": media_status_id},
+                    expected_filters_subset=expected_filters_subset,
                 ),
                 RealLLMCase(
                     conversation_id=cid,
@@ -287,6 +297,19 @@ def _build_cases(context: dict[str, Any]) -> list[RealLLMCase]:
                 ),
             ]
         )
+
+    cases[33] = RealLLMCase(
+        conversation_id="real-llm-media-status-direct-1",
+        message="查询这个视频历史上所有的分佣情况",
+        user_role="operator",
+        bound_creator_id=None,
+        expected_action="answer",
+        expected_intent="QUERY_MEDIA_COMMISSION_STATUS",
+        expected_task_type="MEDIA_COMMISSION_STATUS",
+        expected_selected_tool="get_media_commission_status",
+        expected_filters_subset={"media_id": media_status_id, "time_scope": "ALL_HISTORY"},
+        note="media status all history",
+    )
 
     clarify_media_status_openers = [
         "如何查看我的视频是否可分佣",

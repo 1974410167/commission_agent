@@ -14,7 +14,7 @@ from app.application.llm.models import LLMMessage
 from app.application.nlu.base import BaseNLU
 from app.common.exceptions import LLMServiceError
 from app.config.settings import Settings, get_settings
-from app.domain.intent_models import CommissionQuerySlots, EntityScope, GoalType, QueryUnderstanding, TurnType
+from app.domain.intent_models import CommissionQuerySlots, EntityScope, GoalType, QueryUnderstanding, TimeScope, TurnType
 from app.domain.task_state_models import TaskState, TaskType
 
 
@@ -111,12 +111,20 @@ class LLMBasedNLU(BaseNLU):
                         "COMPARE=看对比；"
                         "EXPLAIN=看解释；"
                         "UNKNOWN=无法判断。\n"
+                        "time_scope 定义："
+                        "RECENT_7D=最近7天；"
+                        "RECENT_30D=最近30天；"
+                        "ALL_HISTORY=历史上所有/全部/不限时间/全量。\n"
                         "关键规则："
                         "“是否可分佣”属于 STATUS；"
                         "“为什么不可分佣/为什么没有佣金”属于 REASON；"
                         "“什么时候到账/到账了吗/什么时候打款”属于 ORDER + STATUS；"
                         "“按视频展开”属于 MODIFY_FILTERS，slots.group_by=media_id；"
                         "“对比闭环CPS和开环CPS”属于 MODIFY_FILTERS，entity_scope=CREATOR，goal_type=COMPARE，slots.compare_source_types=[1,2]；"
+                        "时间表达统一落到 slots.time_scope："
+                        "最近7天/近一周 -> RECENT_7D；"
+                        "最近30天/近一个月 -> RECENT_30D；"
+                        "历史上所有/全部/不限时间/全量 -> ALL_HISTORY；"
                         "用户问“什么是/解释一下/有什么区别”这类术语问题时，才属于 TERM + EXPLAIN；"
                         "“如何查看/怎么看 + 视频是否可分佣”仍然是视频状态查询，不属于术语解释；"
                         "“我的视频能不能分佣/我的视频是否可分佣”属于 MEDIA + STATUS，不要理解成 CREATOR 汇总；"
@@ -128,7 +136,7 @@ class LLMBasedNLU(BaseNLU):
                         "is_commission: 1=可分佣, 2=不可分佣；"
                         "source_type: 1=闭环CPS, 2=开环CPS, 3=CPT。\n"
                         "slots 只允许这些字段：creator_id, media_id, shop_order_id, third_party_order_id, "
-                        "source_type, is_commission, no_commission_type, transfer_type, region, time_field, "
+                        "source_type, is_commission, no_commission_type, transfer_type, region, time_scope, time_field, "
                         "start_time, end_time, compare_source_types, group_by, term。\n"
                         "少量样例：\n"
                         '用户: 帮我查达人88001最近30天分佣情况 -> {"turn_type":"NEW_QUERY","entity_scope":"CREATOR","goal_type":"SUMMARY","task_type":null,"slots":{"creator_id":88001},"confidence":0.96}\n'
@@ -137,6 +145,7 @@ class LLMBasedNLU(BaseNLU):
                         '用户: 视频990041是否可分佣 -> {"turn_type":"NEW_QUERY","entity_scope":"MEDIA","goal_type":"STATUS","task_type":null,"slots":{"media_id":990041},"confidence":0.96}\n'
                         '用户: 我的视频能不能分佣 -> {"turn_type":"NEW_QUERY","entity_scope":"MEDIA","goal_type":"STATUS","task_type":null,"slots":{},"confidence":0.88}\n'
                         '用户: 怎么看视频是否可分佣 -> {"turn_type":"NEW_QUERY","entity_scope":"MEDIA","goal_type":"STATUS","task_type":null,"slots":{},"confidence":0.88}\n'
+                        '用户: 查询这个视频历史上所有的分佣情况 -> {"turn_type":"MODIFY_FILTERS","entity_scope":"MEDIA","goal_type":"STATUS","task_type":null,"slots":{"time_scope":"ALL_HISTORY"},"confidence":0.9}\n'
                         '用户: 视频990041为什么不可分佣 -> {"turn_type":"NEW_QUERY","entity_scope":"MEDIA","goal_type":"REASON","task_type":null,"slots":{"media_id":990041},"confidence":0.97}\n'
                         '用户: 订单SO-20260308-001127什么时候到账 -> {"turn_type":"NEW_QUERY","entity_scope":"ORDER","goal_type":"STATUS","task_type":null,"slots":{"shop_order_id":"SO-20260308-001127"},"confidence":0.98}\n'
                         '用户: 我的佣金什么时候到账 -> {"turn_type":"NEW_QUERY","entity_scope":"ORDER","goal_type":"STATUS","task_type":null,"slots":{},"confidence":0.83}\n'
@@ -153,7 +162,7 @@ class LLMBasedNLU(BaseNLU):
                         '{"turn_type":"NEW_QUERY","entity_scope":"CREATOR","goal_type":"SUMMARY","task_type":null,"confidence":0.95,'
                         '"slots":{"creator_id":null,"media_id":null,"shop_order_id":null,'
                         '"third_party_order_id":null,"source_type":null,"is_commission":null,'
-                        '"no_commission_type":null,"transfer_type":null,"region":null,"time_field":null,'
+                        '"no_commission_type":null,"transfer_type":null,"region":null,"time_scope":null,"time_field":null,'
                         '"start_time":null,"end_time":null,"compare_source_types":null,"group_by":null,"term":null}}'
                     ),
                 ),
@@ -276,6 +285,12 @@ class LLMBasedNLU(BaseNLU):
 
         group_by = slots.get("group_by")
         slots["group_by"] = group_by if group_by in VALID_GROUP_BY else None
+
+        time_scope = slots.get("time_scope")
+        if time_scope in {scope.value for scope in TimeScope}:
+            slots["time_scope"] = time_scope
+        else:
+            slots["time_scope"] = None
 
         if slots.get("is_commission") not in (None, 1, 2):
             slots["is_commission"] = None

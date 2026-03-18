@@ -80,6 +80,22 @@ class GoalType(str, Enum):
     UNKNOWN = "UNKNOWN"
 
 
+class TimeScope(str, Enum):
+    """时间范围语义。
+
+    这层不是最终 ES DSL，而是用户时间表达的轻量语义抽象：
+    - RECENT_7D
+    - RECENT_30D
+    - ALL_HISTORY
+
+    这样可以避免把“最近7天/最近30天/历史上所有”都写成零散 case。
+    """
+
+    RECENT_7D = "RECENT_7D"
+    RECENT_30D = "RECENT_30D"
+    ALL_HISTORY = "ALL_HISTORY"
+
+
 class CommissionQuerySlots(BaseModel):
     """NLU 抽取出来的原始槽位。
 
@@ -96,6 +112,7 @@ class CommissionQuerySlots(BaseModel):
     no_commission_type: int | None = None
     transfer_type: int | None = None
     region: str | None = None
+    time_scope: TimeScope | None = None
     time_field: Literal["order_confirm_time", "order_complete_time"] | None = None
     start_time: int | None = None
     end_time: int | None = None
@@ -147,6 +164,7 @@ class NormalizedFilters(BaseModel):
     no_commission_type: int | None = None
     transfer_type: int | None = None
     region: str | None = None
+    time_scope: TimeScope | None = None
     time_field: Literal["order_confirm_time", "order_complete_time"] | None = None
     start_time: int | None = None
     end_time: int | None = None
