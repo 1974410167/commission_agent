@@ -92,6 +92,7 @@ class Settings:
     llm_enabled: bool = _get_bool("LLM_ENABLED", True)
     rag_enabled: bool = _get_bool("RAG_ENABLED", True)
     app_debug: bool = _get_bool("APP_DEBUG", True)
+    knowledge_backend: str = os.getenv("KNOWLEDGE_BACKEND", "local").strip().lower()
     conversation_store_backend: str = os.getenv("CONVERSATION_STORE_BACKEND", "memory").strip().lower()
     postgres_host: str = os.getenv("POSTGRES_HOST", "localhost")
     postgres_port: int = int(os.getenv("POSTGRES_PORT", "5432"))
@@ -115,6 +116,13 @@ class Settings:
     knowledge_chunks_path: Path = Path(__file__).resolve().parents[2] / "knowledge" / "chunks.jsonl"
     knowledge_index_meta_path: Path = Path(__file__).resolve().parents[2] / "knowledge" / "index.json"
     knowledge_index_vector_path: Path = Path(__file__).resolve().parents[2] / "knowledge" / "index.npy"
+    qdrant_host: str = os.getenv("QDRANT_HOST", "127.0.0.1")
+    qdrant_port: int = int(os.getenv("QDRANT_PORT", "6333"))
+    qdrant_url_override: str = os.getenv("QDRANT_URL", "")
+    qdrant_path_override: str = os.getenv("QDRANT_PATH", "")
+    qdrant_collection: str = os.getenv("QDRANT_COLLECTION", "commission_knowledge")
+    qdrant_api_key: str = os.getenv("QDRANT_API_KEY", "")
+    qdrant_use_https: bool = _get_bool("QDRANT_USE_HTTPS", False)
 
     @property
     def chat_base_url(self) -> str:
@@ -172,6 +180,26 @@ class Settings:
     def embedding_enabled(self) -> bool:
         """当前 embedding 配置是否足够完整，可以真正生成向量。"""
         return bool(self.rag_enabled and self.embedding_api_key and self.embedding_base_url and self.embedding_model)
+
+    @property
+    def qdrant_url(self) -> str:
+        """Qdrant 连接地址。"""
+        if self.qdrant_path_override:
+            return ""
+        if self.qdrant_url_override:
+            return self.qdrant_url_override
+        scheme = "https" if self.qdrant_use_https else "http"
+        return f"{scheme}://{self.qdrant_host}:{self.qdrant_port}"
+
+    @property
+    def qdrant_path(self) -> str:
+        """Qdrant embedded mode 存储路径。"""
+        return self.qdrant_path_override
+
+    @property
+    def qdrant_enabled(self) -> bool:
+        """当前 Qdrant 配置是否足够完整。"""
+        return bool(self.rag_enabled and self.qdrant_collection and (self.qdrant_url or self.qdrant_path))
 
     @property
     def postgres_dsn(self) -> str:

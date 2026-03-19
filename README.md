@@ -172,6 +172,7 @@ MODEL_PROVIDER=local
 EMBEDDING_PROVIDER=bailian
 LLM_ENABLED=true
 RAG_ENABLED=true
+KNOWLEDGE_BACKEND=local
 APP_DEBUG=true
 CONVERSATION_STORE_BACKEND=memory
 POSTGRES_HOST=localhost
@@ -200,6 +201,13 @@ VOLCENGINE_CHAT_MODEL=DeepSeek-V3.2
 LOCAL_CHAT_BASE_URL=http://127.0.0.1:18080/v1
 LOCAL_CHAT_API_KEY=local-llm
 LOCAL_CHAT_MODEL=qwen-local
+QDRANT_HOST=127.0.0.1
+QDRANT_PORT=6333
+QDRANT_URL=
+QDRANT_PATH=
+QDRANT_COLLECTION=commission_knowledge
+QDRANT_API_KEY=
+QDRANT_USE_HTTPS=false
 ES_HOST=http://127.0.0.1:9200
 ES_INDEX=commission_orders_v1
 ES_USERNAME=
@@ -216,6 +224,9 @@ COMMISSION_SEED=20260308
   - `zhipu`
   - `volcengine`
 - `EMBEDDING_PROVIDER` 控制向量构建默认使用哪个 provider，当前推荐保留为 `bailian`
+- `KNOWLEDGE_BACKEND` 控制知识检索底座：
+  - `local`：本地 `chunks.jsonl + index.npy + numpy cosine`
+  - `qdrant`：Qdrant collection 检索，仍保留本地 chunks/meta 作为 fallback 和调试材料
 - `CONVERSATION_STORE_BACKEND` 控制会话快照后端：
   - `memory`
   - `postgres`
@@ -481,6 +492,7 @@ python -m app.scripts.build_knowledge_index
 - [knowledge/chunks.jsonl](/Users/gehaoyuan/code/commission_agent/knowledge/chunks.jsonl)
 - [knowledge/index.json](/Users/gehaoyuan/code/commission_agent/knowledge/index.json)
 - 如果 embedding 可用，还会额外生成 `knowledge/index.npy`
+- 如果 `KNOWLEDGE_BACKEND=qdrant` 且 Qdrant 可用，还会把向量同步到 `commission_knowledge` collection
 
 本地实际构建结果：
 
@@ -492,10 +504,48 @@ python -m app.scripts.build_knowledge_index
 说明：
 
 - chat 和 embedding 现在支持分离配置
+- 知识检索支持 `local / qdrant` 双后端
 - 当前本地实际验证：
   - chat 可在 `local / bailian / zhipu` 之间切换
   - embedding 默认继续使用百炼兼容地址
   - `text-embedding-v4` 已成功返回 1024 维向量
+
+### 可选：接入 Qdrant
+
+如果想把 explain / RAG 从本地 `numpy` 检索升级成真正的向量数据库，可直接启动 Qdrant：
+
+```bash
+docker compose up -d qdrant
+```
+
+如果本机有 Docker，推荐：
+
+```env
+KNOWLEDGE_BACKEND=qdrant
+QDRANT_HOST=127.0.0.1
+QDRANT_PORT=6333
+QDRANT_COLLECTION=commission_knowledge
+```
+
+如果本机没有 Docker，也可以直接走 embedded mode：
+
+```env
+KNOWLEDGE_BACKEND=qdrant
+QDRANT_PATH=/Users/gehaoyuan/code/commission_agent/.qdrant
+QDRANT_COLLECTION=commission_knowledge
+```
+
+再重新构建知识索引：
+
+```bash
+python -m app.scripts.build_knowledge_index
+```
+
+当前实现会：
+
+- 继续生成本地 `chunks.jsonl / index.json / index.npy`，便于调试和 fallback
+- 额外把 chunk 向量 upsert 到 Qdrant collection
+- explain 检索优先走 Qdrant；若 Qdrant 不可用，则自动回退到本地检索
 
 验证 RAG：
 

@@ -1,6 +1,6 @@
 # RAG Design
 
-第三阶段的 RAG 目标是：让 explain 类问题和“事实 + 规则解释”类问题能够基于 markdown 知识库返回可追溯证据，同时不引入重量级向量数据库。
+第三阶段的 RAG 目标是：让 explain 类问题和“事实 + 规则解释”类问题能够基于 markdown 知识库返回可追溯证据，并支持在本地文件检索与 Qdrant 向量数据库之间切换。
 
 ## 设计原则
 
@@ -44,11 +44,16 @@
 
 ## 索引策略
 
-当前使用本地文件索引：
+当前支持两种索引后端：
 
-- [knowledge/chunks.jsonl](/Users/gehaoyuan/code/commission_agent/knowledge/chunks.jsonl)
-- [knowledge/index.json](/Users/gehaoyuan/code/commission_agent/knowledge/index.json)
-- 有 embedding 时追加 `knowledge/index.npy`
+1. `local`
+   - [knowledge/chunks.jsonl](/Users/gehaoyuan/code/commission_agent/knowledge/chunks.jsonl)
+   - [knowledge/index.json](/Users/gehaoyuan/code/commission_agent/knowledge/index.json)
+   - 有 embedding 时追加 `knowledge/index.npy`
+
+2. `qdrant`
+   - 本地文件仍然保留，便于调试和 fallback
+   - chunk 向量额外同步到 Qdrant collection：`commission_knowledge`
 
 索引模式：
 
@@ -58,13 +63,18 @@
 
 ## 检索策略
 
-`KnowledgeRetriever` 支持两条路径：
+检索路径支持两种后端：
 
-1. embedding 检索
+1. local embedding 检索
    - 通过百炼 OpenAI 兼容 Embedding 接口生成向量
    - 本地 `numpy + cosine similarity`
 
-2. keyword fallback
+2. qdrant embedding 检索
+   - query 先做 embedding
+   - Qdrant collection 做 top-k 向量检索
+   - collection 同时保存 chunk payload，便于 evidence 返回
+
+3. keyword fallback
    - 面向业务术语和 code 的关键词命中
    - 不依赖外部 API
 

@@ -1,5 +1,6 @@
 {
-  "mode": "embedding",
-  "embedding_model": "text-embedding-v4",
+  "mode": "keyword",
+  "backend": "local",
+  "embedding_model": null,
   "chunk_count": 51
 }

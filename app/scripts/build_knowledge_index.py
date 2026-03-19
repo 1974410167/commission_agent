@@ -14,6 +14,7 @@ def main() -> None:
     print(f"chunk_count: {result.chunk_count}")
     print(f"index_mode: {result.index_mode}")
     print(f"embedding_model: {result.embedding_model}")
+    print(f"knowledge_backend: {service.settings.knowledge_backend}")
 
 
 if __name__ == "__main__":

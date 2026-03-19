@@ -23,6 +23,7 @@ class LocalKnowledgeVectorStore:
         mode: str,
         embedding_model: str | None,
         vectors: np.ndarray | None,
+        backend: str = "local",
     ) -> None:
         """把知识块、索引元信息和可选向量写到本地。"""
         chunks_path.parent.mkdir(parents=True, exist_ok=True)
@@ -32,6 +33,7 @@ class LocalKnowledgeVectorStore:
 
         meta = {
             "mode": mode,
+            "backend": backend,
             "embedding_model": embedding_model,
             "chunk_count": len(chunks),
         }

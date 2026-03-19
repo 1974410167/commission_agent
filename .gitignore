@@ -7,3 +7,5 @@ __pycache__/
 .kibana/
 logs/
 demo/output/validate_real_llm_matrix.log
+.qdrant/
+.qdrant_validate/

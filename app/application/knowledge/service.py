@@ -18,6 +18,7 @@ import numpy as np
 from app.application.knowledge.chunker import chunk_markdown
 from app.application.knowledge.embeddings import KnowledgeEmbeddingService
 from app.application.knowledge.loader import ensure_knowledge_markdown
+from app.application.knowledge.qdrant_store import QdrantKnowledgeStore
 from app.application.knowledge.retriever import KnowledgeRetriever
 from app.application.knowledge.vector_store import LocalKnowledgeVectorStore
 from app.application.llm.client import OpenAICompatibleClient
@@ -37,8 +38,9 @@ class KnowledgeService:
         # knowledge 层自己持有 embedding / retriever / vector store / llm client，
         # 这样上层 tools 不需要知道它内部到底是 keyword 还是 embedding。
         self.embedding_service = KnowledgeEmbeddingService(self.settings)
-        self.retriever = KnowledgeRetriever(self.embedding_service)
-        self.vector_store = LocalKnowledgeVectorStore()
+        self.local_retriever = KnowledgeRetriever(self.embedding_service)
+        self.local_vector_store = LocalKnowledgeVectorStore()
+        self.qdrant_store = QdrantKnowledgeStore(self.settings)
         self.llm_client = OpenAICompatibleClient(self.settings)
 
     def build_index(self) -> KnowledgeBuildResult:
@@ -50,13 +52,12 @@ class KnowledgeService:
         markdown_path = ensure_knowledge_markdown(self.settings)
         chunks = chunk_markdown(markdown_path)
         # embedding 文本刻意把 heading_path 拼进去，避免只向量化正文导致语义丢失。
-        vectors = self.embedding_service.embed_texts(
-            [self._chunk_to_embedding_text(chunk) for chunk in chunks]
-        )
+        embedding_texts = [self._chunk_to_embedding_text(chunk) for chunk in chunks]
+        vectors = self.embedding_service.embed_texts(embedding_texts)
         mode = "embedding" if vectors is not None else "keyword"
         # 即使 embedding 失败，这里也仍然把 chunks 和 meta 写出来，
         # 确保系统最差还能走 keyword fallback。
-        self.vector_store.save(
+        self.local_vector_store.save(
             chunks_path=self.settings.knowledge_chunks_path,
             index_meta_path=self.settings.knowledge_index_meta_path,
             index_vector_path=self.settings.knowledge_index_vector_path,
@@ -64,7 +65,13 @@ class KnowledgeService:
             mode=mode,
             embedding_model=self.settings.embedding_model if vectors is not None else None,
             vectors=vectors,
+            backend=self.settings.knowledge_backend,
         )
+        # Qdrant 是“索引后端”，不是新的知识源。
+        # 所以仍然保留本地 chunks/meta 文件，便于调试与 fallback；
+        # 只是额外把 embedding 向量同步到 Qdrant collection。
+        if vectors is not None and self.settings.knowledge_backend == "qdrant":
+            self.qdrant_store.upsert_chunks(chunks, vectors)
         return KnowledgeBuildResult(
             source_file=str(markdown_path),
             chunk_count=len(chunks),
@@ -76,7 +83,7 @@ class KnowledgeService:
         """检索术语解释类问题对应的知识块。"""
         chunks, _, vectors = self._ensure_index_loaded()
         normalized_query, canonical_term = self._normalize_term_query(query)
-        retrieved = self.retriever.retrieve(normalized_query, chunks=chunks, vectors=vectors, top_k=max(top_k, 8))
+        retrieved = self._retrieve_chunks(normalized_query, chunks=chunks, vectors=vectors, top_k=max(top_k, 8))
         reranked = self._rerank_term_chunks(retrieved, canonical_term)
         return self._filter_relevant_chunks(reranked)[:top_k]
 
@@ -86,7 +93,7 @@ class KnowledgeService:
         # 规则码经常很短，比如 NO_PRODUCT_COMMISSION。
         # 先扩写成更长、更贴业务语义的 query，检索会稳定很多。
         normalized_query = self._normalize_rule_query(code_or_query)
-        retrieved = self.retriever.retrieve(normalized_query, chunks=chunks, vectors=vectors, top_k=max(top_k, 8))
+        retrieved = self._retrieve_chunks(normalized_query, chunks=chunks, vectors=vectors, top_k=max(top_k, 8))
         return self._filter_relevant_chunks(retrieved)[:top_k]
 
     def explain_business_term(self, term_or_query: str, context: dict[str, Any] | None = None) -> KnowledgeExplainPayload:
@@ -160,11 +167,28 @@ class KnowledgeService:
         """首次使用时按需构建索引，否则直接从本地文件加载。"""
         if not self.settings.knowledge_chunks_path.exists() or not self.settings.knowledge_index_meta_path.exists():
             self.build_index()
-        return self.vector_store.load(
+        return self.local_vector_store.load(
             chunks_path=self.settings.knowledge_chunks_path,
             index_meta_path=self.settings.knowledge_index_meta_path,
             index_vector_path=self.settings.knowledge_index_vector_path,
         )
+
+    def _retrieve_chunks(
+        self,
+        query: str,
+        *,
+        chunks: list,
+        vectors: np.ndarray | None,
+        top_k: int,
+    ) -> list[RetrievedChunk]:
+        """根据配置在 local / qdrant 检索后端之间切换。"""
+        if self.settings.knowledge_backend == "qdrant" and vectors is not None:
+            query_vectors = self.embedding_service.embed_texts([query])
+            if query_vectors is not None and len(query_vectors) > 0:
+                retrieved = self.qdrant_store.search(query_vector=query_vectors[0], top_k=top_k)
+                if retrieved:
+                    return retrieved
+        return self.local_retriever.retrieve(query, chunks=chunks, vectors=vectors, top_k=top_k)
 
     @staticmethod
     def _chunk_to_embedding_text(chunk) -> str:
